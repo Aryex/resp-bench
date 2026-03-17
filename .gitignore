@@ -58,3 +58,7 @@ nodes-*.conf
 # Temporary files
 *.tmp
 *.temp
+
+*.kiro
+*.vscode
+*output
