@@ -58,6 +58,9 @@ public class PhaseConfig {
     @JsonProperty("commands")
     private List<CommandConfig> commands;
 
+    @JsonProperty("interval_histogram_seconds")
+    private Integer intervalHistogramSeconds;
+
     // Getters and Setters
 
     public String getId() {
@@ -138,6 +141,14 @@ public class PhaseConfig {
 
     public void setCommands(List<CommandConfig> commands) {
         this.commands = commands;
+    }
+
+    public Integer getIntervalHistogramSeconds() {
+        return intervalHistogramSeconds;
+    }
+
+    public void setIntervalHistogramSeconds(Integer intervalHistogramSeconds) {
+        this.intervalHistogramSeconds = intervalHistogramSeconds;
     }
 
     // Convenience methods

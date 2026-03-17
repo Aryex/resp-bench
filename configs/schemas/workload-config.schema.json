@@ -79,6 +79,12 @@
           "minimum": 0,
           "default": 1
         },
+        "interval_histogram_seconds": {
+          "type": "integer",
+          "description": "If set, emit per-interval HDR histograms to a sidecar .hlog file at this cadence (seconds). Omit to disable.",
+          "minimum": 1,
+          "maximum": 3600
+        },
         "completion": {
           "$ref": "#/definitions/completion"
         },

@@ -45,6 +45,10 @@ public class NdjsonMetricsWriter {
         // No pretty printing - NDJSON requires compact single-line JSON
     }
 
+    public Path getOutputPath() {
+        return outputPath;
+    }
+
     /**
      * Set metadata for the benchmark run.
      * 
@@ -68,12 +72,20 @@ public class NdjsonMetricsWriter {
      */
     public void writePhaseResults(String phaseId, String status, int connections, 
                                    MetricsCollector collector) throws IOException {
+        writePhaseResults(phaseId, status, connections, collector, null);
+    }
+
+    /**
+     * Writes phase results as a single NDJSON line, optionally referencing an interval histogram log.
+     */
+    public void writePhaseResults(String phaseId, String status, int connections, 
+                                   MetricsCollector collector, Path hlogPath) throws IOException {
         
         // Ensure parent directory exists
         Files.createDirectories(outputPath.getParent());
         
         // Build the JSON object
-        ObjectNode root = buildPhaseJson(phaseId, status, connections, collector);
+        ObjectNode root = buildPhaseJson(phaseId, status, connections, collector, hlogPath);
         
         // Write as single line (no pretty printing) + newline
         try (BufferedWriter writer = Files.newBufferedWriter(outputPath, 
@@ -86,7 +98,7 @@ public class NdjsonMetricsWriter {
     }
 
     private ObjectNode buildPhaseJson(String phaseId, String status, int connections,
-                                       MetricsCollector collector) {
+                                       MetricsCollector collector, Path hlogPath) {
         ObjectNode root = objectMapper.createObjectNode();
         
         // Metadata (commit, driver info)
@@ -153,6 +165,11 @@ public class NdjsonMetricsWriter {
             hdr.put("format", "hdr");
             hdr.put("sigfig", 3);
             hdr.put("payload_b64", encodeHistogram(cmdMetrics.getHistogram()));
+        }
+
+        // Interval histogram log reference (if enabled)
+        if (hlogPath != null) {
+            root.put("interval_histogram_log", hlogPath.getFileName().toString());
         }
         
         return root;

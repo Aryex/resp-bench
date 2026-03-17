@@ -22,6 +22,7 @@ public class MetricsCollector {
     private final AtomicLong totalErrors = new AtomicLong(0);
     private volatile long startTime;
     private volatile long endTime;
+    private volatile IntervalHistogramLogger intervalLogger;
 
     public void start() {
         startTime = System.currentTimeMillis();
@@ -29,6 +30,10 @@ public class MetricsCollector {
 
     public void stop() {
         endTime = System.currentTimeMillis();
+    }
+
+    public void setIntervalLogger(IntervalHistogramLogger intervalLogger) {
+        this.intervalLogger = intervalLogger;
     }
 
     public void record(CommandResult result) {
@@ -39,6 +44,10 @@ public class MetricsCollector {
         
         commandMetrics.computeIfAbsent(result.commandName(), CommandMetrics::new)
                 .record(result);
+
+        if (intervalLogger != null && result.success()) {
+            intervalLogger.recordValue(result.commandName(), result.latencyMicros());
+        }
     }
 
     public long getTotalRequests() { return totalRequests.get(); }

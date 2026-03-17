@@ -1,0 +1,39 @@
+{
+    "schema_version": "1.0",
+    "benchmark_profile": {
+        "name": "GLIDE Stability Test - 10min",
+        "description": "10-minute stability test with 30s interval histograms"
+    },
+    "phases": [
+        {
+            "id": "WARMUP",
+            "description": "Populate 100K keys",
+            "connections": 10,
+            "completion": {"type": "requests", "requests": 100000},
+            "keyspace": {
+                "keys_count": 100000,
+                "key_prefix": "stability:",
+                "generation_alg": "sequential_int"
+            },
+            "commands": [
+                {"command": "set", "weight": 1.0, "data_size_bytes": 512}
+            ]
+        },
+        {
+            "id": "STEADY",
+            "description": "10min sustained 80/20 GET/SET with 30s interval histograms",
+            "connections": 10,
+            "completion": {"type": "duration", "seconds": 600},
+            "interval_histogram_seconds": 30,
+            "keyspace": {
+                "keys_count": 100000,
+                "key_prefix": "stability:",
+                "generation_alg": "uniform_rand"
+            },
+            "commands": [
+                {"command": "get", "weight": 0.8},
+                {"command": "set", "weight": 0.2, "data_size_bytes": 512}
+            ]
+        }
+    ]
+}

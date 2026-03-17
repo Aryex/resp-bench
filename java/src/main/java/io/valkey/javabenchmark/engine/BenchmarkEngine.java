@@ -10,9 +10,11 @@ import io.valkey.javabenchmark.command.CommandFactory;
 import io.valkey.javabenchmark.config.*;
 import io.valkey.javabenchmark.metrics.NdjsonMetricsWriter;
 import io.valkey.javabenchmark.metrics.MetricsCollector;
+import io.valkey.javabenchmark.metrics.IntervalHistogramLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -152,11 +154,27 @@ public class BenchmarkEngine {
         // Create metrics collector
         MetricsCollector metrics = new MetricsCollector();
 
+        // Enable interval histogram logging if configured
+        IntervalHistogramLogger intervalLogger = null;
+        Path hlogPath = null;
+        if (phase.getIntervalHistogramSeconds() != null) {
+            hlogPath = metricsWriter.getOutputPath()
+                    .resolveSibling(metricsWriter.getOutputPath().getFileName() + "." + phase.getId() + ".hlog");
+            intervalLogger = new IntervalHistogramLogger();
+            intervalLogger.start(hlogPath, phase.getIntervalHistogramSeconds());
+            metrics.setIntervalLogger(intervalLogger);
+        }
+
         // Execute workload with backpressure (including warmup)
         String status = executeWorkload(phase, clientSlots, commands, keyGenerator, rateLimiter, metrics);
 
+        // Stop interval logging before writing metrics
+        if (intervalLogger != null) {
+            intervalLogger.stop();
+        }
+
         // Write metrics
-        metricsWriter.writePhaseResults(phase.getId(), status, phase.getConnections(), metrics);
+        metricsWriter.writePhaseResults(phase.getId(), status, phase.getConnections(), metrics, hlogPath);
 
         // Close clients
         closeClientSlots(clientSlots);
