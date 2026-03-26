@@ -368,12 +368,7 @@ class MetricsWatcher:
         while not self.metrics_path.exists():
             # Check if benchmark process died
             if benchmark_proc and benchmark_proc.poll() is not None:
-                stdout, stderr = benchmark_proc.communicate()
                 print("=== Benchmark crashed! ===")
-                print("=== stdout ===")
-                print(stdout.decode() if stdout else "(empty)")
-                print("=== stderr ===")
-                print(stderr.decode() if stderr else "(empty)")
                 raise RuntimeError(
                     f"Benchmark process died with exit code {benchmark_proc.returncode}")
             # Print status every 30 seconds
@@ -647,6 +642,34 @@ class MonitoringManager:
         self.processes["heap_monitor"] = proc
         print(f"Started heap monitor on PID {pid} (interval={interval}s)")
 
+    def start_smaps_monitor(self, pid: int, interval: int):
+        """Sample /proc/<pid>/smaps_rollup at the given interval.
+
+        Captures total RSS, Anonymous (native heap incl. Glide Core), and
+        Private_Dirty — giving a breakdown that ps RSS cannot provide.
+        Format per line: epoch_s rss_kb anon_kb private_dirty_kb
+        """
+        output_file = self.work_dir / "smaps_monitor.log"
+        self.output_files["smaps_monitor"] = output_file
+        fh = open(output_file, "w")
+        self._file_handles["smaps_monitor"] = fh
+        script = (
+            f'while kill -0 {pid} 2>/dev/null; do '
+            f'  f=/proc/{pid}/smaps_rollup; '
+            f'  if [ -r "$f" ]; then '
+            f'    rss=$(grep "^Rss:" "$f" | awk \'{{print $2}}\'); '
+            f'    anon=$(grep "^Anonymous:" "$f" | awk \'{{print $2}}\'); '
+            f'    pdirty=$(grep "^Private_Dirty:" "$f" | awk \'{{print $2}}\'); '
+            f'    echo "$(date +%s) $rss $anon $pdirty"; '
+            f'  fi; '
+            f'  sleep {interval}; '
+            f'done'
+        )
+        proc = subprocess.Popen(["bash", "-c", script], stdout=fh,
+                                stderr=subprocess.DEVNULL, preexec_fn=os.setsid)
+        self.processes["smaps_monitor"] = proc
+        print(f"Started smaps monitor on PID {pid} (interval={interval}s)")
+
     def start_all(self, benchmark_pid: int, heap_monitor_interval: int = 2):
         self.benchmark_pid = benchmark_pid  # Store for stop_all
         self.start_mpstat()
@@ -656,6 +679,7 @@ class MonitoringManager:
         self.start_async_profiler(benchmark_pid)
         if heap_monitor_interval > 0:
             self.start_heap_monitor(benchmark_pid, heap_monitor_interval)
+            self.start_smaps_monitor(benchmark_pid, heap_monitor_interval)
         print("All monitoring processes started")
 
     def stop_all(self):
@@ -702,7 +726,7 @@ def parse_mpstat(filepath: Path) -> dict:
         "idle_percent_avg": 0.0, "idle_percent_min": 100.0,
         "iowait_percent_avg": 0.0, "steal_percent_avg": 0.0
     }
-    if not filepath.exists():
+    if filepath is None or not filepath.exists():
         return result
 
     user_values, system_values, idle_values = [], [], []
@@ -744,7 +768,7 @@ def parse_mpstat(filepath: Path) -> dict:
 
 def parse_iostat(filepath: Path) -> dict:
     result = {"read_bytes": 0, "write_bytes": 0, "read_iops": 0, "write_iops": 0}
-    if not filepath.exists():
+    if filepath is None or not filepath.exists():
         return result
 
     read_kb, write_kb, read_iops, write_iops = [], [], [], []
@@ -779,7 +803,7 @@ def parse_iostat(filepath: Path) -> dict:
 def parse_sar_network(filepath: Path) -> dict:
     result = {"bytes_sent": 0, "bytes_recv": 0,
               "packets_sent": 0, "packets_recv": 0}
-    if not filepath.exists():
+    if filepath is None or not filepath.exists():
         return result
 
     rx_bytes, tx_bytes, rx_packets, tx_packets = [], [], [], []
@@ -870,7 +894,7 @@ def parse_perf_stat(filepath: Path, hardware_available: bool) -> dict:
         "branch_miss_rate": None,
         "context_switches": 0, "cpu_migrations": 0, "page_faults": 0
     }
-    if not filepath.exists():
+    if filepath is None or not filepath.exists():
         return result
 
     content = filepath.read_text()
@@ -916,7 +940,7 @@ def parse_heap_log(filepath: Path) -> dict:
     """Parse jcmd GC.heap_info samples into a time-series."""
     result = {"interval_seconds": 0, "timestamps_epoch": [],
               "heap_used_kb": [], "heap_total_kb": [], "metaspace_used_kb": []}
-    if not filepath.exists():
+    if filepath is None or not filepath.exists():
         return result
 
     current_ts = None
@@ -944,11 +968,37 @@ def parse_heap_log(filepath: Path) -> dict:
     return result
 
 
+def parse_smaps_log(filepath: Path) -> dict:
+    """Parse smaps_rollup monitor log.
+
+    Format per line: epoch_s rss_kb anon_kb private_dirty_kb
+    """
+    result = {"interval_seconds": 0, "timestamps_epoch": [],
+              "rss_kb": [], "anon_kb": [], "private_dirty_kb": []}
+    if filepath is None or not filepath.exists():
+        return result
+    with open(filepath) as f:
+        for line in f:
+            parts = line.strip().split()
+            if len(parts) == 4:
+                try:
+                    result["timestamps_epoch"].append(int(parts[0]))
+                    result["rss_kb"].append(int(parts[1]))
+                    result["anon_kb"].append(int(parts[2]))
+                    result["private_dirty_kb"].append(int(parts[3]))
+                except ValueError:
+                    continue
+    if len(result["timestamps_epoch"]) >= 2:
+        result["interval_seconds"] = (result["timestamps_epoch"][1]
+                                      - result["timestamps_epoch"][0])
+    return result
+
+
 def parse_gc_log(filepath: Path) -> dict:
     """Parse JVM GC log for pause events."""
     result = {"pauses": [], "summary": {"count": 0, "total_pause_ms": 0.0,
                                          "max_pause_ms": 0.0, "avg_pause_ms": 0.0}}
-    if not filepath.exists():
+    if filepath is None or not filepath.exists():
         return result
 
     pause_pattern = re.compile(
@@ -1235,7 +1285,8 @@ class BenchmarkOrchestrator:
                         capture_output=True)
         print("Valkey infrastructure stopped")
 
-    def run_benchmark(self, output_metrics: Path, gc_log: Path = None) -> subprocess.Popen:
+    def run_benchmark(self, output_metrics: Path, work_dir: Path,
+                      gc_log: Path = None) -> subprocess.Popen:
         port = self._get_server_port()
         server = f"localhost:{port}"
 
@@ -1269,8 +1320,12 @@ class BenchmarkOrchestrator:
         print(f"  Workload: {self.workload_config_path}")
         print(f"  Command: {' '.join(cmd)}")
 
-        return subprocess.Popen(cmd, stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE)
+        # Redirect to files to avoid pipe buffer deadlock (see docs/ISSUE_STDOUT_PIPE_DEADLOCK.md)
+        self._benchmark_stdout_fh = open(work_dir / "benchmark_stdout.log", "w")
+        self._benchmark_stderr_fh = open(work_dir / "benchmark_stderr.log", "w")
+
+        return subprocess.Popen(cmd, stdout=self._benchmark_stdout_fh,
+                                stderr=self._benchmark_stderr_fh)
 
     def _publish_to_postgresql(self, versions: dict, config: dict,
                                results: dict):
@@ -1316,7 +1371,7 @@ class BenchmarkOrchestrator:
 
                 print("Starting benchmark...")
                 gc_log = work_dir / "gc.log" if not self.disable_gc_log else None
-                benchmark_proc = self.run_benchmark(benchmark_metrics, gc_log=gc_log)
+                benchmark_proc = self.run_benchmark(benchmark_metrics, work_dir, gc_log=gc_log)
 
                 metrics_watcher = MetricsWatcher(benchmark_metrics)
                 metrics_watcher.start(benchmark_proc=benchmark_proc)
@@ -1338,8 +1393,10 @@ class BenchmarkOrchestrator:
                 monitor.stop_all()
                 metrics_watcher.stop()
 
-                _, stderr = benchmark_proc.communicate(timeout=10)
-                print(f"Benchmark stderr:\n{stderr.decode()}")
+                benchmark_proc.wait(timeout=10)
+                self._benchmark_stdout_fh.close()
+                self._benchmark_stderr_fh.close()
+                print(f"Benchmark stderr:\n{(work_dir / 'benchmark_stderr.log').read_text()}")
 
                 # Get collapsed stacks from async-profiler and upload to S3
                 collapsed_stacks_url = None
@@ -1392,14 +1449,14 @@ class BenchmarkOrchestrator:
 
                 # Parse system-level metrics
                 perf_counters = parse_perf_stat(
-                    monitor.output_files.get("perf_stat", Path()),
+                    monitor.output_files.get("perf_stat"),
                     monitor.hardware_perf_available)
                 cpu_stats = parse_mpstat(
-                    monitor.output_files.get("mpstat", Path()))
+                    monitor.output_files.get("mpstat"))
                 disk_stats = parse_iostat(
-                    monitor.output_files.get("iostat", Path()))
+                    monitor.output_files.get("iostat"))
                 network_stats = parse_sar_network(
-                    monitor.output_files.get("sar_network", Path()))
+                    monitor.output_files.get("sar_network"))
 
                 # Copy NDJSON metrics to output directory
                 output_metrics_path = self.output_file.with_suffix('.ndjson')
@@ -1452,8 +1509,12 @@ class BenchmarkOrchestrator:
                     },
                     "jvm": {
                         "heap": parse_heap_log(
-                            monitor.output_files.get("heap_monitor", Path())),
+                            monitor.output_files.get("heap_monitor")),
                         "gc": parse_gc_log(gc_log) if gc_log else {}
+                    },
+                    "process": {
+                        "smaps": parse_smaps_log(
+                            monitor.output_files.get("smaps_monitor"))
                     }
                 }
 
