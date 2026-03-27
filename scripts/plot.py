@@ -54,6 +54,8 @@ def main():
                         help='Path to .hlog file (latency & throughput data)')
     parser.add_argument('-o', '--output', type=Path, required=True,
                         help='Output PNG path')
+    parser.add_argument('--title', type=str, default='Stability Test Results',
+                        help='Plot title (default: "Stability Test Results")')
     args = parser.parse_args()
 
     if not args.heap and not args.gc and not args.hlog:
@@ -84,6 +86,8 @@ def main():
         panels.extend(['throughput', 'latency_p50', 'latency_p99'])
     if heap:
         panels.append('heap')
+        if rss:
+            panels.append('heap_vs_offheap')
     if gc:
         panels.append('gc')
 
@@ -94,7 +98,7 @@ def main():
     fig, axes = plt.subplots(len(panels), 1, figsize=(14, 4 * len(panels)))
     if len(panels) == 1:
         axes = [axes]
-    fig.suptitle('Stability Test Results', fontsize=14, fontweight='bold')
+    fig.suptitle(args.title, fontsize=14, fontweight='bold')
 
     panel_idx = 0
 
@@ -107,7 +111,7 @@ def main():
         ax.set_xlabel('Time (min)')
         ax.set_ylabel('Requests / interval')
         ax.set_title('Throughput')
-        ax.legend(fontsize=8)
+        ax.legend(fontsize=8, loc='lower right')
         ax.grid(True, alpha=0.3)
 
     # --- Latency p50 ---
@@ -119,7 +123,7 @@ def main():
         ax.set_xlabel('Time (min)')
         ax.set_ylabel('Latency (µs)')
         ax.set_title('Latency (p50)')
-        ax.legend(fontsize=7)
+        ax.legend(fontsize=7, loc='lower right')
         ax.grid(True, alpha=0.3)
 
     # --- Latency p99 ---
@@ -131,7 +135,7 @@ def main():
         ax.set_xlabel('Time (min)')
         ax.set_ylabel('Latency (µs)')
         ax.set_title('Latency (p99)')
-        ax.legend(fontsize=7)
+        ax.legend(fontsize=7, loc='lower right')
         ax.grid(True, alpha=0.3)
 
     # --- Heap usage over time ---
@@ -141,9 +145,12 @@ def main():
         ts_min = [(t - t0) / 60 for t in heap['timestamps_epoch']]
         used_mb = [k / 1024 for k in heap['heap_used_kb']]
         total_mb = [k / 1024 for k in heap['heap_total_kb']]
-        ax.plot(ts_min, used_mb, 'b-o', markersize=3, label='Heap Used')
+        # Rolling-max trend line to show peak envelope through GC sawtooth
+        window = max(1, len(used_mb) // 50)
+        used_arr = np.array(used_mb)
+        trend = np.array([used_arr[max(0, i - window):i + 1].max() for i in range(len(used_arr))])
+        ax.plot(ts_min, trend, 'b-', linewidth=2, alpha=0.6, label='Heap Peak Trend')
         ax.plot(ts_min, total_mb, 'r--', alpha=0.5, label='Heap Total')
-        ax.fill_between(ts_min, used_mb, alpha=0.15, color='blue')
         if rss:
             rss_t0 = rss['timestamps_epoch'][0]
             rss_min = [(t - rss_t0) / 60 for t in rss['timestamps_epoch']]
@@ -155,7 +162,30 @@ def main():
             ax.set_title(f'Memory (heap peak: {max(used_mb):.0f} MB, RSS peak: {max(rss_mb):.0f} MB, native peak: {max(anon_mb):.0f} MB)')
         else:
             ax.set_title(f'JVM Heap (peak: {max(used_mb):.0f} MB / {total_mb[0]:.0f} MB)')
-        ax.legend(fontsize=8)
+        ax.legend(fontsize=8, loc='lower right')
+        ax.set_xlabel('Time (min)')
+        ax.set_ylabel('MB')
+        ax.grid(True, alpha=0.3)
+
+    # --- Heap peak vs Off-heap (native) ---
+    if 'heap_vs_offheap' in panels:
+        ax = axes[panel_idx]; panel_idx += 1
+        t0 = heap['timestamps_epoch'][0]
+        ts_min = [(t - t0) / 60 for t in heap['timestamps_epoch']]
+        used_mb = [k / 1024 for k in heap['heap_used_kb']]
+        window = max(1, len(used_mb) // 50)
+        used_arr = np.array(used_mb)
+        heap_trend = np.array([used_arr[max(0, i - window):i + 1].max() for i in range(len(used_arr))])
+        ax.plot(ts_min, heap_trend, 'b-', linewidth=2, alpha=0.7, label='Heap Peak Trend')
+        # Off-heap = Anonymous - smoothed heap used (rolling max), interpolated to smaps timestamps
+        rss_t0 = rss['timestamps_epoch'][0]
+        rss_min = [(t - rss_t0) / 60 for t in rss['timestamps_epoch']]
+        anon_mb = np.array([k / 1024 for k in rss['rss_kb']])
+        heap_trend_interp = np.interp(rss['timestamps_epoch'], heap['timestamps_epoch'], heap_trend)
+        offheap_mb = np.clip(anon_mb - heap_trend_interp, 0, None)
+        ax.plot(rss_min, offheap_mb, 'c-', linewidth=1.5, alpha=0.7, label='Off-Heap')
+        ax.set_title(f'Heap Peak vs Off-Heap (heap peak: {max(heap_trend):.0f} MB, off-heap peak: {max(offheap_mb):.0f} MB)')
+        ax.legend(fontsize=8, loc='lower right')
         ax.set_xlabel('Time (min)')
         ax.set_ylabel('MB')
         ax.grid(True, alpha=0.3)
@@ -170,7 +200,7 @@ def main():
         ax.axhline(avg_ms, color='orange', linestyle='--', alpha=0.7,
                     label=f'avg: {avg_ms:.1f}ms')
         ax.set_title(f'GC Pauses ({len(gc_ms)} events, max: {max(gc_ms):.1f}ms)')
-        ax.legend(fontsize=8)
+        ax.legend(fontsize=8, loc='lower right')
         ax.set_xlabel('Time (min)')
         ax.set_ylabel('Pause (ms)')
         ax.grid(True, alpha=0.3)
