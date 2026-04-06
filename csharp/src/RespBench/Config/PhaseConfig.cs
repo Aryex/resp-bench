@@ -31,6 +31,9 @@ public class PhaseConfig
     [JsonPropertyName("warmup_requests")]
     public int WarmupRequests { get; set; } = 1;
 
+    [JsonPropertyName("interval_histogram_seconds")]
+    public int? IntervalHistogramSeconds { get; set; }
+
     [JsonPropertyName("completion")]
     public CompletionConfig Completion { get; set; } = new();
 

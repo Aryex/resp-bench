@@ -20,6 +20,9 @@ public class MetricsCollector
     private long _startTime;
     private long _endTime;
     private readonly Stopwatch _stopwatch = new();
+    private volatile IntervalMetricsLogger? _intervalLogger;
+
+    public void SetIntervalLogger(IntervalMetricsLogger? logger) => _intervalLogger = logger;
 
     public void Start()
     {
@@ -40,6 +43,11 @@ public class MetricsCollector
 
         _commandMetrics.GetOrAdd(result.CommandName, name => new CommandMetrics(name))
             .Record(result);
+
+        if (result.Success)
+            _intervalLogger?.RecordValue(result.CommandName, result.LatencyMicros, true);
+        else
+            _intervalLogger?.RecordValue(result.CommandName, 0, false);
     }
 
     public long TotalRequests => Interlocked.Read(ref _totalRequests);

@@ -24,6 +24,7 @@ public class BenchmarkEngine
     private readonly DriverConfig _driverConfig;
     private readonly WorkloadConfig _workloadConfig;
     private readonly NdjsonMetricsWriter _metricsWriter;
+    private readonly string _metricsPath;
     private readonly string? _commitId;
     private readonly ILogger<BenchmarkEngine> _logger;
 
@@ -36,6 +37,7 @@ public class BenchmarkEngine
         _driverConfig = driverConfig;
         _workloadConfig = workloadConfig;
         _metricsWriter = new NdjsonMetricsWriter(metricsPath);
+        _metricsPath = metricsPath;
         _commitId = commitId;
 
         using var loggerFactory = LoggerFactory.Create(b => b.AddConsole().SetMinimumLevel(LogLevel.Information));
@@ -91,10 +93,22 @@ public class BenchmarkEngine
         var rateLimiter = phase.HasRpsLimit ? RateLimiter.Create(phase.RpsLimit) : null;
         var metrics = new MetricsCollector();
 
+        // Enable interval histogram logging if configured
+        IntervalMetricsLogger? intervalLogger = null;
+        if (phase.IntervalHistogramSeconds is > 0)
+        {
+            var intervalPath = $"{_metricsPath}.{phase.Id}.interval.ndjson";
+            intervalLogger = new IntervalMetricsLogger();
+            intervalLogger.Start(intervalPath, phase.Id, phase.IntervalHistogramSeconds.Value);
+            metrics.SetIntervalLogger(intervalLogger);
+        }
+
         await WarmupClients(clients, phase.WarmupRequests).ConfigureAwait(false);
 
         string status = await ExecuteWorkload(phase, clients, commands, keyGenerator,
                                                rateLimiter, metrics, pipelineDepth).ConfigureAwait(false);
+
+        intervalLogger?.Stop();
 
         _metricsWriter.WritePhaseResults(phase.Id, status, phase.Connections, metrics);
         CloseClients(clients);
