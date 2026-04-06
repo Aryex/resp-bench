@@ -115,7 +115,7 @@ def generate_html(datasets, memory_datasets, labels, output_path, title):
             )
             traces_memory.append(
                 f'{{"x": {json.dumps(mem["times"])}, "y": {json.dumps(mem["native_est_mb"])}, '
-                f'"name": "{prefix}RSS - Heap", "type": "scatter", "line": {{"color": "#9C27B0"{line_style}}}}}'
+                f'"name": "{prefix}RSS minus Heap", "type": "scatter", "line": {{"color": "#9C27B0"{line_style}}}}}'
             )
 
     panels = [
