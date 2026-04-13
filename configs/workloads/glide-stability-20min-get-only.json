@@ -1,0 +1,38 @@
+{
+    "schema_version": "1.0",
+    "benchmark_profile": {
+        "name": "GLIDE Stability Test - 20min GET-only",
+        "description": "Stability test: warmup populates 1M keys, then 20min sustained GET-only workload"
+    },
+    "phases": [
+        {
+            "id": "WARMUP",
+            "description": "Populate 1M keys with sequential SET operations",
+            "connections": 10,
+            "completion": {"type": "requests", "requests": 1000000},
+            "keyspace": {
+                "keys_count": 1000000,
+                "key_prefix": "stability:",
+                "generation_alg": "sequential_int"
+            },
+            "commands": [
+                {"command": "set", "weight": 1.0, "data_size_bytes": 512}
+            ]
+        },
+        {
+            "id": "STEADY",
+            "description": "20min sustained GET-only workload with 30s interval histograms",
+            "connections": 10,
+            "completion": {"type": "duration", "seconds": 1200},
+            "interval_histogram_seconds": 30,
+            "keyspace": {
+                "keys_count": 1000000,
+                "key_prefix": "stability:",
+                "generation_alg": "uniform_rand"
+            },
+            "commands": [
+                {"command": "get", "weight": 1.0}
+            ]
+        }
+    ]
+}
