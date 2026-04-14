@@ -26,6 +26,7 @@ python/dist/
 python/build/
 python/.pytest_cache/
 python/.venv/
+*/venv/
 *.pyc
 *.pyo
 
