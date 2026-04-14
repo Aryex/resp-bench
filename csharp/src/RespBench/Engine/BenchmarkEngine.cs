@@ -122,16 +122,27 @@ public class BenchmarkEngine
         var clients = new List<IBenchmarkClient>();
         var cpsLimiter = phase.HasCpsLimit ? RateLimiter.Create(phase.CpsLimit) : null;
 
+        bool sharedClient = phase.SharedClient;
+        IBenchmarkClient? shared = null;
+
         for (int i = 0; i < phase.Connections; i++)
         {
+            if (sharedClient && shared != null)
+            {
+                clients.Add(shared);
+                continue;
+            }
             if (cpsLimiter != null) await cpsLimiter.Acquire().ConfigureAwait(false);
             var client = BenchmarkClientFactory.CreateAndConnect(_host, _port, _driverConfig);
             clients.Add(client);
+            if (sharedClient) shared = client;
             if ((i + 1) % 50 == 0)
                 Console.WriteLine($"Created {i + 1}/{phase.Connections} connections");
         }
 
-        Console.WriteLine($"All {clients.Count} connections established");
+        Console.WriteLine(sharedClient
+            ? $"All {clients.Count} workers sharing 1 connection"
+            : $"All {clients.Count} connections established");
         return clients;
     }
 
@@ -353,8 +364,10 @@ public class BenchmarkEngine
 
     private void CloseClients(List<IBenchmarkClient> clients)
     {
-        Console.WriteLine($"Closing {clients.Count} connections...");
-        foreach (var client in clients)
+        var unique = new HashSet<IBenchmarkClient>(ReferenceEqualityComparer.Instance);
+        foreach (var c in clients) unique.Add(c);
+        Console.WriteLine($"Closing {unique.Count} connection(s)...");
+        foreach (var client in unique)
         {
             try { client.Dispose(); }
             catch (Exception e) { Console.WriteLine($"Error closing client: {e.Message}"); }

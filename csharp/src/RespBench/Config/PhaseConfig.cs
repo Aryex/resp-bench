@@ -28,6 +28,9 @@ public class PhaseConfig
     [JsonPropertyName("pipeline_depth")]
     public int PipelineDepth { get; set; } = 1;
 
+    [JsonPropertyName("shared_client")]
+    public bool SharedClient { get; set; } = false;
+
     [JsonPropertyName("warmup_requests")]
     public int WarmupRequests { get; set; } = 1;
 

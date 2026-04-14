@@ -58,3 +58,6 @@ nodes-*.conf
 # Temporary files
 *.tmp
 *.temp
+
+bin/
+obj/
