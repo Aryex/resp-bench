@@ -26,7 +26,7 @@ python/dist/
 python/build/
 python/.pytest_cache/
 python/.venv/
-*/venv/
+**/venv/
 *.pyc
 *.pyo
 
@@ -62,3 +62,5 @@ nodes-*.conf
 
 bin/
 obj/
+
+output/
