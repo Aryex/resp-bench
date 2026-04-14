@@ -66,16 +66,23 @@ def main():
         f"METRICS_OUTPUT={metrics_path}",
     ]
 
+    log_path = str(output_dir / "console.log")
+
     print(f"Engine: {engine}")
     print(f"Command: {' '.join(bench_cmd)}")
     print(f"System monitor: {system_path} (interval={args.monitor_interval}s)")
+    print(f"Console log: {log_path}")
     print()
 
-    bench_proc = subprocess.Popen(bench_cmd, start_new_session=True)
+    log_file = open(log_path, "w")
+    bench_proc = subprocess.Popen(bench_cmd, stdout=log_file, stderr=subprocess.STDOUT,
+                                  start_new_session=True)
     pgid = os.getpgid(bench_proc.pid)
 
     with SystemMonitor(system_path, interval=args.monitor_interval, target_pgid=pgid):
         bench_proc.wait()
+
+    log_file.close()
 
     if bench_proc.returncode != 0:
         print(f"Benchmark exited with code {bench_proc.returncode}", file=sys.stderr)
