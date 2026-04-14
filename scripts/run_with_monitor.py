@@ -84,6 +84,13 @@ def main():
 
     log_file.close()
 
+    # Copy Valkey server log if available
+    import shutil
+    repo_root = Path(__file__).parent.parent
+    valkey_log = repo_root / "work" / "valkey-6379.log"
+    if valkey_log.exists():
+        shutil.copy2(valkey_log, output_dir / "valkey-server.log")
+
     if bench_proc.returncode != 0:
         print(f"Benchmark exited with code {bench_proc.returncode}", file=sys.stderr)
         sys.exit(bench_proc.returncode)
