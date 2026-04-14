@@ -1,0 +1,7 @@
+{
+    "schema_version": "1.0",
+    "description": "Valkey GLIDE C# - cluster configuration",
+    "driver_id": "valkey-glide-csharp",
+    "mode": "cluster",
+    "specific_driver_config": {}
+}
