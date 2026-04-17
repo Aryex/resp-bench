@@ -34,6 +34,7 @@ WORK_DIR=$(shell pwd)/work
 	python-build python-test python-run python-clean \
 	ruby-build ruby-test ruby-run ruby-clean ruby-info \
 	csharp-build csharp-test csharp-run csharp-clean csharp-info \
+	php-build php-test php-run php-clean php-info \
 	config-editor-build config-editor-dev
 
 # ============================================================================
@@ -73,6 +74,12 @@ help:
 	@echo "  make csharp-run             Run C# benchmark (requires DRIVER and WORKLOAD)"
 	@echo "  make csharp-clean           Clean C# build artifacts"
 	@echo "  make csharp-info            Show supported C# drivers and commands"
+	@echo ""
+	@echo "PHP Engine:"
+	@echo "  make php-build              Install PHP dependencies"
+	@echo "  make php-test               Run PHP tests"
+	@echo "  make php-run                Run PHP benchmark (requires DRIVER and WORKLOAD)"
+	@echo "  make php-info               Show supported PHP drivers and commands"
 	@echo ""
 	@echo "Config Editor:"
 	@echo "  make config-editor-build    Build config editor UI"
@@ -386,6 +393,29 @@ csharp-clean:
 
 csharp-info: csharp-build
 	dotnet run --project $(CSHARP_PROJECT) -c Release -- --info
+
+# ============================================================================
+# PHP Engine
+# ============================================================================
+
+php-build:
+	cd php && composer install --no-interaction
+
+php-test: php-build
+	cd php && vendor/bin/phpunit
+
+php-run: php-build
+	cd php && php bin/resp-bench \
+		--server $(SERVER) \
+		--driver ../$(DRIVER) \
+		--workload ../$(WORKLOAD) \
+		--metrics ../$(METRICS_OUTPUT)
+
+php-clean:
+	cd php && rm -rf vendor composer.lock
+
+php-info: php-build
+	cd php && php bin/resp-bench --info
 
 # ============================================================================
 # Config Editor

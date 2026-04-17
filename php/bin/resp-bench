@@ -1,0 +1,154 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/**
+ * resp-bench PHP engine CLI entry point.
+ *
+ * Usage:
+ *   php bin/resp-bench --server HOST:PORT --driver PATH --workload PATH --metrics PATH
+ *   php bin/resp-bench --info
+ */
+
+require_once __DIR__ . '/../vendor/autoload.php';
+
+use RespBench\Client\BenchmarkClientFactory;
+use RespBench\Command\CommandFactory;
+use RespBench\Config\ConfigLoader;
+use RespBench\Engine\BenchmarkEngine;
+
+function parseArgs(array $argv): array
+{
+    $options = [
+        'host' => 'localhost',
+        'port' => 6379,
+        'driver' => null,
+        'workload' => null,
+        'metrics' => null,
+        'commit_id' => null,
+        'info' => false,
+    ];
+
+    $i = 1;
+    while ($i < count($argv)) {
+        switch ($argv[$i]) {
+            case '--server':
+                $parts = explode(':', $argv[++$i]);
+                $options['host'] = $parts[0];
+                if (isset($parts[1])) {
+                    $options['port'] = (int) $parts[1];
+                }
+                break;
+            case '--driver':
+                $options['driver'] = $argv[++$i];
+                break;
+            case '--workload':
+                $options['workload'] = $argv[++$i];
+                break;
+            case '--metrics':
+                $options['metrics'] = $argv[++$i];
+                break;
+            case '--commit-id':
+                $options['commit_id'] = $argv[++$i];
+                break;
+            case '--info':
+                $options['info'] = true;
+                break;
+            case '-h':
+            case '--help':
+                printUsage();
+                exit(0);
+            default:
+                fwrite(STDERR, "Unknown option: {$argv[$i]}\n");
+                exit(1);
+        }
+        $i++;
+    }
+
+    return $options;
+}
+
+function printUsage(): void
+{
+    echo <<<USAGE
+    Usage: resp-bench [options]
+
+    Options:
+      --server HOST:PORT   Server address (default: localhost:6379)
+      --driver PATH        Driver configuration file (required)
+      --workload PATH      Workload configuration file (required)
+      --metrics PATH       Metrics output file (required)
+      --commit-id ID       Git commit ID for metadata
+      --info               Show supported drivers and commands
+      -h, --help           Show this help message
+
+    USAGE;
+}
+
+function printInfo(): void
+{
+    echo "resp-bench PHP Engine v1.0.0\n\n";
+    echo "Supported Drivers:\n";
+    foreach (BenchmarkClientFactory::supportedDrivers() as $driver) {
+        echo "  - {$driver}\n";
+    }
+    echo "\nSupported Commands:\n";
+    foreach (CommandFactory::supportedCommands() as $cmd) {
+        echo "  - {$cmd}\n";
+    }
+    echo "\nConcurrency: single-process (1 client per connection, sequential)\n";
+    echo "PHP extension required: valkey_glide\n";
+}
+
+// --- Main ---
+
+$options = parseArgs($argv);
+
+if ($options['info']) {
+    printInfo();
+    exit(0);
+}
+
+// Validate required options
+$missing = [];
+if (!$options['driver']) $missing[] = '--driver';
+if (!$options['workload']) $missing[] = '--workload';
+if (!$options['metrics']) $missing[] = '--metrics';
+
+if ($missing) {
+    fwrite(STDERR, "Missing required options: " . implode(', ', $missing) . "\n");
+    exit(1);
+}
+
+if (!file_exists($options['driver'])) {
+    fwrite(STDERR, "Driver config not found: {$options['driver']}\n");
+    exit(1);
+}
+if (!file_exists($options['workload'])) {
+    fwrite(STDERR, "Workload config not found: {$options['workload']}\n");
+    exit(1);
+}
+
+try {
+    $driverConfig = ConfigLoader::loadDriverConfig($options['driver']);
+    $workloadConfig = ConfigLoader::loadWorkloadConfig($options['workload']);
+
+    $engine = new BenchmarkEngine(
+        host: $options['host'],
+        port: $options['port'],
+        driverConfig: $driverConfig,
+        workloadConfig: $workloadConfig,
+        metricsPath: $options['metrics'],
+        commitId: $options['commit_id'],
+    );
+
+    $engine->run();
+    exit(0);
+} catch (\Throwable $e) {
+    fwrite(STDERR, "Error: {$e->getMessage()}\n");
+    if (getenv('DEBUG')) {
+        fwrite(STDERR, $e->getTraceAsString() . "\n");
+    }
+    exit(1);
+}
