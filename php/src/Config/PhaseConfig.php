@@ -17,6 +17,7 @@ class PhaseConfig
         public readonly int $rpsLimit = -1,
         public readonly int $pipelineDepth = 1,
         public readonly int $warmupRequests = 1,
+        public readonly ?int $intervalHistogramSeconds = null,
         public readonly ?CompletionConfig $completion = null,
         public readonly ?KeyspaceConfig $keyspace = null,
         public readonly array $commands = [],

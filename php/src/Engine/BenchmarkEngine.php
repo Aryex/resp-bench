@@ -10,6 +10,7 @@ use RespBench\Command\CommandFactory;
 use RespBench\Config\DriverConfig;
 use RespBench\Config\PhaseConfig;
 use RespBench\Config\WorkloadConfig;
+use RespBench\Metrics\IntervalMetricsLogger;
 use RespBench\Metrics\MetricsCollector;
 use RespBench\Metrics\NdjsonWriter;
 
@@ -81,6 +82,15 @@ class BenchmarkEngine
         // Warmup
         $this->warmup($clients, $phase->warmupRequests);
 
+        // Setup interval logger if configured
+        $intervalLogger = null;
+        if ($phase->intervalHistogramSeconds !== null && $phase->intervalHistogramSeconds > 0) {
+            $intervalPath = "{$this->metricsPath}.{$phase->id}.interval.ndjson";
+            $intervalLogger = new IntervalMetricsLogger();
+            $intervalLogger->start($intervalPath, $phase->id, $phase->intervalHistogramSeconds);
+            $this->log("Interval metrics: every {$phase->intervalHistogramSeconds}s -> {$intervalPath}");
+        }
+
         // Setup
         $keyGenerator = new KeyGenerator($phase->keyspace);
         $commandSelector = new CommandSelector($phase->commands);
@@ -93,9 +103,9 @@ class BenchmarkEngine
 
         try {
             if ($phase->completion->isRequestBased()) {
-                $this->runRequestBased($clients, $phase, $keyGenerator, $commandSelector, $rateLimiter, $collector);
+                $this->runRequestBased($clients, $phase, $keyGenerator, $commandSelector, $rateLimiter, $collector, $intervalLogger);
             } else {
-                $this->runDurationBased($clients, $phase, $keyGenerator, $commandSelector, $rateLimiter, $collector);
+                $this->runDurationBased($clients, $phase, $keyGenerator, $commandSelector, $rateLimiter, $collector, $intervalLogger);
             }
         } catch (\Throwable $e) {
             $status = 'ERROR';
@@ -103,6 +113,7 @@ class BenchmarkEngine
         }
 
         $collector->stop();
+        $intervalLogger?->stop();
 
         // Write results
         $this->metricsWriter->writePhaseResults(
@@ -143,6 +154,7 @@ class BenchmarkEngine
         CommandSelector $commandSelector,
         ?RateLimiter $rateLimiter,
         MetricsCollector $collector,
+        ?IntervalMetricsLogger $intervalLogger,
     ): void {
         $totalRequests = $phase->completion->requests;
         $clientCount = count($clients);
@@ -157,7 +169,13 @@ class BenchmarkEngine
                 $cmd->command, $client, $keyGenerator, $cmd->dataSizeBytes
             );
             $collector->record($result);
+            $intervalLogger?->recordValue($result->commandName, $result->latencyMicros, $result->success);
             $completed++;
+
+            // Check interval flush periodically (every 1000 requests to avoid overhead)
+            if ($intervalLogger !== null && $completed % 1000 === 0) {
+                $intervalLogger->maybeFlush();
+            }
         }
     }
 
@@ -171,6 +189,7 @@ class BenchmarkEngine
         CommandSelector $commandSelector,
         ?RateLimiter $rateLimiter,
         MetricsCollector $collector,
+        ?IntervalMetricsLogger $intervalLogger,
     ): void {
         $endTime = microtime(true) + $phase->completion->seconds;
         $clientCount = count($clients);
@@ -185,7 +204,12 @@ class BenchmarkEngine
                 $cmd->command, $client, $keyGenerator, $cmd->dataSizeBytes
             );
             $collector->record($result);
+            $intervalLogger?->recordValue($result->commandName, $result->latencyMicros, $result->success);
             $i++;
+
+            if ($intervalLogger !== null && $i % 1000 === 0) {
+                $intervalLogger->maybeFlush();
+            }
         }
     }
 

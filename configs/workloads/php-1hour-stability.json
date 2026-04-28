@@ -1,0 +1,41 @@
+{
+    "schema_version": "1.0",
+    "benchmark_profile": {
+        "name": "PHP 1-hour stability test",
+        "description": "1-hour benchmark with 5s interval metrics",
+        "version": "1.0.0"
+    },
+    "phases": [
+        {
+            "id": "WARMUP",
+            "connections": 1,
+            "completion": { "type": "requests", "requests": 100000 },
+            "keyspace": {
+                "keys_count": 100000,
+                "key_size_bytes": 16,
+                "key_prefix": "bench:",
+                "generation_alg": "sequential_int"
+            },
+            "commands": [
+                { "command": "set", "weight": 1.0, "data_size_bytes": 512 }
+            ]
+        },
+        {
+            "id": "STEADY",
+            "connections": 1,
+            "interval_histogram_seconds": 5,
+            "completion": { "type": "duration", "seconds": 3600 },
+            "keyspace": {
+                "keys_count": 100000,
+                "key_size_bytes": 16,
+                "key_prefix": "bench:",
+                "generation_alg": "uniform_rand",
+                "seed": 12345
+            },
+            "commands": [
+                { "command": "get", "weight": 0.8 },
+                { "command": "set", "weight": 0.2, "data_size_bytes": 512 }
+            ]
+        }
+    ]
+}

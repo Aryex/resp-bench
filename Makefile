@@ -399,7 +399,13 @@ csharp-info: csharp-build
 # ============================================================================
 
 php-build:
-	cd php && composer install --no-interaction
+	@if command -v composer >/dev/null 2>&1; then \
+		cd php && composer install --no-interaction; \
+	elif [ -f php/vendor/autoload.php ]; then \
+		echo "composer not found, but vendor/ exists — skipping install"; \
+	else \
+		echo "ERROR: composer not found and vendor/ missing. Install composer or run: php composer.phar install" >&2; exit 1; \
+	fi
 
 php-test: php-build
 	cd php && vendor/bin/phpunit

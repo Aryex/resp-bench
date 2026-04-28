@@ -58,6 +58,7 @@ class ConfigLoader
             rpsLimit: $json['rps_limit'] ?? -1,
             pipelineDepth: $json['pipeline_depth'] ?? 1,
             warmupRequests: $json['warmup_requests'] ?? 1,
+            intervalHistogramSeconds: $json['interval_histogram_seconds'] ?? null,
             completion: isset($json['completion']) ? self::parseCompletionConfig($json['completion']) : null,
             keyspace: isset($json['keyspace']) ? self::parseKeyspaceConfig($json['keyspace']) : null,
             commands: array_map(fn(array $c) => self::parseCommandConfig($c), $json['commands'] ?? []),
