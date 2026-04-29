@@ -1,0 +1,39 @@
+{
+    "schema_version": "1.0",
+    "benchmark_profile": {
+        "name": "GLIDE Stability Test - 1min (PHP)",
+        "description": "1min sustained mixed workload with per-second interval histograms, based on glide-stability-20min.json"
+    },
+    "phases": [
+        {
+            "id": "WARMUP",
+            "description": "Populate 100K keys with sequential SET operations",
+            "connections": 10,
+            "completion": { "type": "requests", "requests": 100000 },
+            "keyspace": {
+                "keys_count": 100000,
+                "key_prefix": "stability:",
+                "generation_alg": "sequential_int"
+            },
+            "commands": [
+                { "command": "set", "weight": 1.0, "data_size_bytes": 512 }
+            ]
+        },
+        {
+            "id": "STEADY",
+            "description": "1min sustained 80/20 GET/SET workload with 1s interval histograms",
+            "connections": 10,
+            "interval_histogram_seconds": 1,
+            "completion": { "type": "duration", "seconds": 60 },
+            "keyspace": {
+                "keys_count": 100000,
+                "key_prefix": "stability:",
+                "generation_alg": "uniform_rand"
+            },
+            "commands": [
+                { "command": "get", "weight": 0.8 },
+                { "command": "set", "weight": 0.2, "data_size_bytes": 512 }
+            ]
+        }
+    ]
+}

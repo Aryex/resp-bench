@@ -78,7 +78,7 @@ class ConfigLoader
     {
         return new KeyspaceConfig(
             keysCount: $json['keys_count'],
-            keySizeBytes: $json['key_size_bytes'],
+            keySizeBytes: $json['key_size_bytes'] ?? 16,
             keyPrefix: $json['key_prefix'] ?? null,
             generationAlg: $json['generation_alg'] ?? 'sequential_int',
             seed: $json['seed'] ?? null,

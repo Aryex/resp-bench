@@ -136,15 +136,43 @@ class IntervalMetricsLogger
         $root['metrics'] = $metrics;
 
         // Memory snapshot
+        $phpHeap = memory_get_usage(false);       // PHP emalloc heap
+        $phpAllocated = memory_get_usage(true);   // PHP allocated from OS
+        $processRss = self::getProcessRssBytes();
+
         $root['memory'] = [
-            'gc_heap_bytes' => memory_get_usage(false),      // PHP heap (emalloc)
-            'working_set_bytes' => memory_get_usage(true),   // PHP allocated from OS
+            'gc_heap_bytes' => $phpHeap,
+            'working_set_bytes' => $processRss ?? $phpAllocated,
+            'php_allocated_bytes' => $phpAllocated,
             'peak_heap_bytes' => memory_get_peak_usage(false),
             'peak_working_set_bytes' => memory_get_peak_usage(true),
         ];
 
         $json = json_encode($root, JSON_THROW_ON_ERROR);
         file_put_contents($this->outputPath, $json . "\n", FILE_APPEND);
+    }
+
+    /**
+     * Get actual process RSS in bytes.
+     * On Linux: reads /proc/self/status VmRSS (current RSS).
+     * On macOS: uses getrusage() ru_maxrss (peak RSS — no current RSS API).
+     */
+    private static function getProcessRssBytes(): ?int
+    {
+        // Linux: read current RSS from /proc/self/status
+        if (PHP_OS_FAMILY === 'Linux' && is_readable('/proc/self/status')) {
+            $status = @file_get_contents('/proc/self/status');
+            if ($status !== false && preg_match('/VmRSS:\s+(\d+)\s+kB/', $status, $m)) {
+                return (int) $m[1] * 1024;
+            }
+        }
+
+        // macOS fallback: ru_maxrss (peak RSS, in bytes on macOS)
+        $usage = getrusage();
+        if ($usage === false || !isset($usage['ru_maxrss'])) {
+            return null;
+        }
+        return $usage['ru_maxrss'];
     }
 }
 
