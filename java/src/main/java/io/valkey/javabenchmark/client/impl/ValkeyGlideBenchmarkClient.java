@@ -17,6 +17,7 @@ package io.valkey.javabenchmark.client.impl;
 
 import glide.api.GlideClient;
 import glide.api.GlideClusterClient;
+import glide.api.logging.Logger.Level;
 import glide.api.models.GlideString;
 import glide.api.models.configuration.*;
 import io.valkey.javabenchmark.client.AsyncHelper;
@@ -61,6 +62,7 @@ public class ValkeyGlideBenchmarkClient implements BenchmarkClient {
     @Override
     public void connect(String host, int port, DriverConfig driverConfig) throws ClientException {
         logger.info("Connecting ValkeyGlide to {}:{} (cluster={})", host, port, driverConfig.isClusterMode());
+        glide.api.logging.Logger.init(Level.DEBUG, "glide-debug.log");
         
         try {
             this.isClusterMode = driverConfig.isClusterMode();
