@@ -14,8 +14,8 @@ namespace RespBench.Metrics;
 /// <summary>
 /// Writes per-interval latency histograms to an NDJSON sidecar file.
 ///
-/// Each command gets its own LongConcurrentHistogram for lock-free concurrent recording.
-/// A background timer periodically swaps the active histogram with a fresh one and writes
+/// Each command gets its own Recorder for lock-free concurrent recording.
+/// A background timer periodically calls GetIntervalHistogram() and writes
 /// the interval snapshot as a single NDJSON line.
 /// </summary>
 public class IntervalMetricsLogger
@@ -50,7 +50,7 @@ public class IntervalMetricsLogger
     {
         var slot = _slots.GetOrAdd(commandName, _ => new HistogramSlot());
         if (success)
-            slot.Histogram.RecordValue(Math.Max(1, Math.Min(latencyMicros, MaxLatencyMicros)));
+            slot.Recorder.RecordValue(Math.Max(1, Math.Min(latencyMicros, MaxLatencyMicros)));
         else
             Interlocked.Increment(ref slot.Errors);
         Interlocked.Increment(ref slot.Requests);
@@ -86,8 +86,7 @@ public class IntervalMetricsLogger
 
         foreach (var (cmdName, slot) in _slots)
         {
-            var fresh = new LongConcurrentHistogram(1, MaxLatencyMicros, 3);
-            var snapshot = Interlocked.Exchange(ref slot.Histogram, fresh);
+            HistogramBase snapshot = slot.Recorder.GetIntervalHistogram();
             long requests = Interlocked.Exchange(ref slot.Requests, 0);
             long errors = Interlocked.Exchange(ref slot.Errors, 0);
 
@@ -167,7 +166,14 @@ public class IntervalMetricsLogger
 
     private class HistogramSlot
     {
-        public LongConcurrentHistogram Histogram = new(1, MaxLatencyMicros, 3);
+        public Recorder Recorder = HistogramFactory
+            .With64BitBucketSize()
+            .WithValuesFrom(1)
+            .WithValuesUpTo(MaxLatencyMicros)
+            .WithPrecisionOf(3)
+            .WithThreadSafeWrites()
+            .WithThreadSafeReads()
+            .Create();
         public long Requests;
         public long Errors;
     }
