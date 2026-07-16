@@ -1,0 +1,13 @@
+{
+    "description": "Single-client memory leak test: redis-rb vs valkey-glide-ruby, 30s steady state",
+    "x_axis": "connections",
+    "workload_template": "configs/workloads/memory-leak-test-60s.json",
+    "iterations": 1,
+    "dimensions": {
+        "connections": [1],
+        "driver_config": [
+            "configs/drivers/default/redis-rb.json",
+            "configs/drivers/default/valkey-glide-ruby.json"
+        ]
+    }
+}

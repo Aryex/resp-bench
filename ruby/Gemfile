@@ -9,8 +9,14 @@ gem "redis", "~> 5.0"           # redis-rb client
 gem "HDRHistogram", "~> 0.1"    # HdrHistogram for latency metrics
 gem "oj", "~> 3.16"             # Fast JSON serialization
 gem "concurrent-ruby", "~> 1.2" # Thread-safe data structures
+gem "logger", "~> 1.6"          # No longer a default gem on Ruby >= 4.0
+gem "base64", "~> 0.2"          # No longer a default gem on Ruby >= 3.4
 
-gem "valkey", github: "valkey-io/valkey-glide-ruby", branch: "main"  # valkey-glide-ruby client (drop-in replacement for redis-rb)
+# Local path gem: valkey-glide-ruby built from the main-branch worktree at
+# ~/bq/valkey-glide-ruby-main (native FFI compiled via `rake native:build`).
+# The published `valkey`/`valkey-glide-rb` gems only ship Linux native binaries,
+# so we build from source for macOS support.
+gem "valkey-glide-rb", path: "/Users/lehminh/bq/valkey-glide-ruby-main"
 
 group :development, :test do
   gem "minitest", "~> 5.0"

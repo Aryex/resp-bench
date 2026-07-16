@@ -30,6 +30,7 @@ require_relative "resp_bench/command/command_factory"
 # Metrics
 require_relative "resp_bench/metrics/metrics_collector"
 require_relative "resp_bench/metrics/ndjson_writer"
+require_relative "resp_bench/metrics/memory_sampler"
 
 module RespBench
   class Error < StandardError; end

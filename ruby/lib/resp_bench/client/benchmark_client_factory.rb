@@ -1,8 +1,13 @@
 # frozen_string_literal: true
 
 require_relative "impl/redis_rb_client"
-require_relative "impl/valkey_glide_client"
 require_relative "impl/recording_client"
+
+begin
+  require_relative "impl/valkey_glide_client"
+rescue LoadError => e
+  warn "Warning: valkey-glide-ruby client unavailable (#{e.message}); driver 'valkey-glide-ruby' will be disabled."
+end
 
 module RespBench
   module Client
@@ -10,9 +15,8 @@ module RespBench
     class BenchmarkClientFactory
       DRIVERS = {
         "redis-rb" => Impl::RedisRbClient,
-        "valkey-glide-ruby" => Impl::ValkeyGlideClient,
         "recording" => Impl::RecordingClient
-      }.freeze
+      }.tap { |d| d["valkey-glide-ruby"] = Impl::ValkeyGlideClient if defined?(Impl::ValkeyGlideClient) }.freeze
 
       class << self
         # Create a client instance for the specified driver

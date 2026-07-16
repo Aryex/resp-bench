@@ -1,0 +1,13 @@
+{
+    "description": "48h memory soak test: redis-rb vs valkey-glide-ruby (with leak fix)",
+    "x_axis": "connections",
+    "workload_template": "configs/workloads/memory-soak-48h.json",
+    "iterations": 1,
+    "dimensions": {
+        "connections": [1],
+        "driver_config": [
+            "configs/drivers/default/redis-rb.json",
+            "configs/drivers/default/valkey-glide-ruby.json"
+        ]
+    }
+}

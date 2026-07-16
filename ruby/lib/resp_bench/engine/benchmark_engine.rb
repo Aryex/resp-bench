@@ -38,6 +38,7 @@ module RespBench
         @driver_config = driver_config
         @workload_config = workload_config
         @metrics_writer = Metrics::NdjsonWriter.new(metrics_path)
+        @metrics_path = metrics_path
         @commit_id = commit_id
         @concurrency_mode = resolve_concurrency_mode(concurrency_mode)
         @logger = Logger.new($stdout)
@@ -126,8 +127,21 @@ module RespBench
           commands = Command::CommandFactory.create_all(phase.commands)
           key_generator_seed = phase.keyspace.seed_value
           rate_limiter = phase.rps_limit? ? RateLimiter.create(phase.rps_limit) : nil
+
+          # Start memory sampling for thread mode
+          mem_sampler = Metrics::MemorySampler.new(
+            driver_id: @driver_config.driver_id,
+            connections: phase.connections,
+            phase_id: phase.id
+          )
+          mem_sampler.start
+
           status = execute_threaded_workload(phase, client_slots, commands, phase.keyspace,
                                              key_generator_seed, rate_limiter, metrics)
+
+          mem_sampler.stop
+          write_memory_samples_direct(mem_sampler.samples)
+
           close_client_slots(client_slots)
         end
 
@@ -228,6 +242,9 @@ module RespBench
         end
         metrics.set_totals_from_processes(results)
 
+        # Write memory samples from all workers
+        write_memory_samples(results)
+
         @logger.info("All operations completed (#{total_reqs} total requests, #{num_processes} processes, %.1fs)" % elapsed)
         "COMPLETED"
       rescue Interrupt
@@ -260,6 +277,14 @@ module RespBench
         warmup = phase.warmup_requests
         warmup.times { client.ping } if warmup.positive?
 
+        # Start memory sampling after connection is established and warmup done
+        mem_sampler = Metrics::MemorySampler.new(
+          driver_id: @driver_config.driver_id,
+          connections: phase.connections,
+          phase_id: phase.id
+        )
+        mem_sampler.start
+
         # Rate limiter for this process
         rate_limiter = my_rps ? RateLimiter.create(my_rps) : nil
 
@@ -274,6 +299,10 @@ module RespBench
         # Run single-threaded request loop (no GIL contention!)
         result_data = run_request_loop(slot, commands, phase.keyspace, seed_base,
                                        rate_limiter, my_target, end_time)
+
+        # Stop memory sampling
+        mem_sampler.stop
+        result_data[:memory_samples] = mem_sampler.samples
 
         # Close connection
         client.close rescue nil
@@ -592,6 +621,38 @@ module RespBench
         rescue StandardError => e
           @logger.warn("Error closing client: #{e.message}")
         end
+      end
+
+      # Write memory samples collected from forked worker processes
+      def write_memory_samples(results)
+        memory_path = memory_ndjson_path
+        all_samples = results.flat_map { |r| r[:memory_samples] || [] }
+        return if all_samples.empty?
+
+        FileUtils.mkdir_p(File.dirname(memory_path))
+        File.open(memory_path, "a") do |f|
+          all_samples.each { |s| f.puts(JSON.generate(s)) }
+        end
+        @logger.info("Memory samples written: #{all_samples.size} samples to #{memory_path}")
+      end
+
+      # Write memory samples collected directly (thread mode)
+      def write_memory_samples_direct(samples)
+        return if samples.empty?
+
+        memory_path = memory_ndjson_path
+        FileUtils.mkdir_p(File.dirname(memory_path))
+        File.open(memory_path, "a") do |f|
+          samples.each { |s| f.puts(JSON.generate(s)) }
+        end
+        @logger.info("Memory samples written: #{samples.size} samples to #{memory_path}")
+      end
+
+      # Derive memory NDJSON path from the main metrics path
+      # e.g. results/redis-rb.ndjson -> results/redis-rb.memory.ndjson
+      def memory_ndjson_path
+        base = @metrics_path.sub(/\.ndjson$/, "")
+        "#{base}.memory.ndjson"
       end
 
       # Wraps a BenchmarkClient with pipeline depth tracking
