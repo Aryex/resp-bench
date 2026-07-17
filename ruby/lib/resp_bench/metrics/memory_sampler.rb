@@ -6,32 +6,36 @@ require "fileutils"
 module RespBench
   module Metrics
     # Samples process memory (RSS) and Ruby heap stats at regular intervals.
-    # Designed to run in a background thread alongside the benchmark workload.
+    # Streams each sample directly to an NDJSON file for real-time monitoring.
     #
-    # Produces NDJSON output with one sample per line:
-    #   {"t":0.5,"rss_kb":45000,"ruby_heap_live_slots":120000,"ruby_heap_free_slots":5000,...}
-    #
-    # On macOS, uses `Process.getrusage` for max RSS and /proc on Linux for current RSS.
-    # Falls back to portable `ps` command if neither works.
+    # On macOS, uses `ps` for RSS. On Linux, reads /proc/self/status.
     class MemorySampler
       SAMPLE_INTERVAL = 10 # seconds between samples (suitable for long soak tests)
 
-      attr_reader :samples
+      attr_reader :sample_count
 
-      def initialize(driver_id:, connections:, phase_id:)
+      def initialize(driver_id:, connections:, phase_id:, output_path: nil)
         @driver_id = driver_id
         @connections = connections
         @phase_id = phase_id
-        @samples = []
+        @output_path = output_path
         @thread = nil
         @stop = false
         @start_time = nil
+        @sample_count = 0
+        @file = nil
       end
 
-      # Start sampling in background thread
+      # Start sampling in background thread, streaming to file if path given
       def start
         @start_time = Time.now
         @stop = false
+
+        if @output_path
+          FileUtils.mkdir_p(File.dirname(@output_path))
+          @file = File.open(@output_path, "a")
+        end
+
         # Take initial sample immediately
         take_sample
         @thread = Thread.new { sample_loop }
@@ -43,16 +47,13 @@ module RespBench
         @thread&.join(2)
         # Take one final sample
         take_sample
+        @file&.close
+        @file = nil
       end
 
-      # Write all samples to an NDJSON file
-      def write_to(path)
-        FileUtils.mkdir_p(File.dirname(path))
-        File.open(path, "a") do |f|
-          @samples.each do |sample|
-            f.puts(JSON.generate(sample))
-          end
-        end
+      # For backward compat: return sample count
+      def samples
+        @sample_count
       end
 
       private
@@ -83,17 +84,17 @@ module RespBench
           ruby_malloc_increase_bytes: gc[:malloc_increase_bytes]
         }
 
-        @samples << sample
+        if @file
+          @file.puts(JSON.generate(sample))
+          @file.flush
+        end
+
+        @sample_count += 1
       end
 
       # Get current RSS in KB, cross-platform
       def current_rss_kb
-        if RUBY_PLATFORM.include?("darwin")
-          # macOS: getrusage reports maxrss in bytes
-          # But we want current RSS, not peak. Use ps for that.
-          rss_from_ps
-        elsif File.exist?("/proc/self/status")
-          # Linux: read VmRSS from /proc
+        if File.exist?("/proc/self/status")
           rss_from_proc
         else
           rss_from_ps

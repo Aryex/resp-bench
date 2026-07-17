@@ -128,11 +128,12 @@ module RespBench
           key_generator_seed = phase.keyspace.seed_value
           rate_limiter = phase.rps_limit? ? RateLimiter.create(phase.rps_limit) : nil
 
-          # Start memory sampling for thread mode
+          # Start memory sampling for thread mode (streams directly to file)
           mem_sampler = Metrics::MemorySampler.new(
             driver_id: @driver_config.driver_id,
             connections: phase.connections,
-            phase_id: phase.id
+            phase_id: phase.id,
+            output_path: memory_ndjson_path
           )
           mem_sampler.start
 
@@ -140,7 +141,7 @@ module RespBench
                                              key_generator_seed, rate_limiter, metrics)
 
           mem_sampler.stop
-          write_memory_samples_direct(mem_sampler.samples)
+          @logger.info("Memory samples written: #{mem_sampler.sample_count} samples to #{memory_ndjson_path}")
 
           close_client_slots(client_slots)
         end
@@ -278,10 +279,13 @@ module RespBench
         warmup.times { client.ping } if warmup.positive?
 
         # Start memory sampling after connection is established and warmup done
+        # In fork mode, stream to a per-pid temp file
+        mem_output = "#{memory_ndjson_path}.pid#{Process.pid}"
         mem_sampler = Metrics::MemorySampler.new(
           driver_id: @driver_config.driver_id,
           connections: phase.connections,
-          phase_id: phase.id
+          phase_id: phase.id,
+          output_path: mem_output
         )
         mem_sampler.start
 
@@ -300,9 +304,9 @@ module RespBench
         result_data = run_request_loop(slot, commands, phase.keyspace, seed_base,
                                        rate_limiter, my_target, end_time)
 
-        # Stop memory sampling
+        # Stop memory sampling (already streamed to disk)
         mem_sampler.stop
-        result_data[:memory_samples] = mem_sampler.samples
+        result_data[:memory_sample_count] = mem_sampler.sample_count
 
         # Close connection
         client.close rescue nil
@@ -623,29 +627,29 @@ module RespBench
         end
       end
 
-      # Write memory samples collected from forked worker processes
+      # Merge per-pid memory sample files from forked workers into the main memory file
       def write_memory_samples(results)
         memory_path = memory_ndjson_path
-        all_samples = results.flat_map { |r| r[:memory_samples] || [] }
-        return if all_samples.empty?
+        pid_files = Dir.glob("#{memory_path}.pid*")
+        return if pid_files.empty?
 
         FileUtils.mkdir_p(File.dirname(memory_path))
+        total = 0
         File.open(memory_path, "a") do |f|
-          all_samples.each { |s| f.puts(JSON.generate(s)) }
+          pid_files.each do |pid_file|
+            File.readlines(pid_file).each do |line|
+              f.puts(line)
+              total += 1
+            end
+            File.delete(pid_file)
+          end
         end
-        @logger.info("Memory samples written: #{all_samples.size} samples to #{memory_path}")
+        @logger.info("Memory samples written: #{total} samples to #{memory_path}")
       end
 
-      # Write memory samples collected directly (thread mode)
+      # No longer needed for thread mode (sampler streams directly), kept as no-op
       def write_memory_samples_direct(samples)
-        return if samples.empty?
-
-        memory_path = memory_ndjson_path
-        FileUtils.mkdir_p(File.dirname(memory_path))
-        File.open(memory_path, "a") do |f|
-          samples.each { |s| f.puts(JSON.generate(s)) }
-        end
-        @logger.info("Memory samples written: #{samples.size} samples to #{memory_path}")
+        # Handled by MemorySampler streaming directly to output_path
       end
 
       # Derive memory NDJSON path from the main metrics path
