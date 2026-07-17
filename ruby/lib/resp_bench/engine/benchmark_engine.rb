@@ -140,7 +140,8 @@ module RespBench
 
           status = execute_threaded_workload(phase, client_slots, commands, phase.keyspace,
                                              key_generator_seed, rate_limiter, metrics,
-                                             request_counter: mem_sampler.request_counter)
+                                             request_counter: mem_sampler.request_counter,
+                                             latency_sum: mem_sampler.latency_sum_us)
 
           mem_sampler.stop
           @logger.info("Memory samples written: #{mem_sampler.sample_count} samples to #{memory_ndjson_path}")
@@ -405,7 +406,7 @@ module RespBench
 
       def execute_threaded_workload(phase, client_slots, commands, keyspace,
                                     key_generator_seed, rate_limiter, metrics,
-                                    request_counter: nil)
+                                    request_counter: nil, latency_sum: nil)
         completion = phase.completion
 
         # Calculate thread count (one thread per client, capped at MAX_THREADS)
@@ -508,6 +509,7 @@ module RespBench
                 begin
                   result = command.execute(slot.client, key_wrapper)
                   local_collector.record(result)
+                  latency_sum&.increment(result.latency_micros) if result.success?
                 rescue StandardError
                   local_collector.record(
                     Command::CommandResult.new(

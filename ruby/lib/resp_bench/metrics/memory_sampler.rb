@@ -12,7 +12,7 @@ module RespBench
       SAMPLE_INTERVAL = 10 # seconds between samples
 
       attr_reader :sample_count
-      attr_accessor :request_counter, :metrics_collector
+      attr_accessor :request_counter, :latency_sum_us, :metrics_collector
 
       def initialize(driver_id:, connections:, phase_id:, output_path: nil)
         @driver_id = driver_id
@@ -25,8 +25,10 @@ module RespBench
         @sample_count = 0
         @file = nil
         @request_counter = Concurrent::AtomicFixnum.new(0)
+        @latency_sum_us = Concurrent::AtomicFixnum.new(0)
         @metrics_collector = nil
         @prev_requests = 0
+        @prev_latency_sum = 0
         @prev_time = nil
       end
 
@@ -71,8 +73,11 @@ module RespBench
         gc = GC.stat
 
         current_requests = @request_counter.value
+        current_latency_sum = @latency_sum_us.value
         dt = now - @prev_time
-        rps = dt > 0 ? ((current_requests - @prev_requests) / dt).round(0) : 0
+        interval_reqs = current_requests - @prev_requests
+        rps = dt > 0 ? (interval_reqs / dt).round(0) : 0
+        avg_latency_us = interval_reqs > 0 ? ((current_latency_sum - @prev_latency_sum) / interval_reqs) : 0
 
         sample = {
           t: elapsed.round(3),
@@ -88,7 +93,8 @@ module RespBench
           ruby_gc_count: gc[:count],
           ruby_malloc_increase_bytes: gc[:malloc_increase_bytes],
           requests_total: current_requests,
-          rps: rps
+          rps: rps,
+          avg_latency_us: avg_latency_us
         }
 
         # Snapshot latency percentiles from the metrics collector if available
@@ -101,6 +107,7 @@ module RespBench
         end
 
         @prev_requests = current_requests
+        @prev_latency_sum = current_latency_sum
         @prev_time = now
 
         if @file
