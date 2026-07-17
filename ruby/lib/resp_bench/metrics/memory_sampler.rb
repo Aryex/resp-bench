@@ -2,17 +2,17 @@
 
 require "json"
 require "fileutils"
+require "concurrent"
 
 module RespBench
   module Metrics
-    # Samples process memory (RSS) and Ruby heap stats at regular intervals.
+    # Samples process memory (RSS), Ruby heap stats, throughput, and latency at regular intervals.
     # Streams each sample directly to an NDJSON file for real-time monitoring.
-    #
-    # On macOS, uses `ps` for RSS. On Linux, reads /proc/self/status.
     class MemorySampler
-      SAMPLE_INTERVAL = 10 # seconds between samples (suitable for long soak tests)
+      SAMPLE_INTERVAL = 10 # seconds between samples
 
       attr_reader :sample_count
+      attr_accessor :request_counter, :metrics_collector
 
       def initialize(driver_id:, connections:, phase_id:, output_path: nil)
         @driver_id = driver_id
@@ -24,11 +24,15 @@ module RespBench
         @start_time = nil
         @sample_count = 0
         @file = nil
+        @request_counter = Concurrent::AtomicFixnum.new(0)
+        @metrics_collector = nil
+        @prev_requests = 0
+        @prev_time = nil
       end
 
-      # Start sampling in background thread, streaming to file if path given
       def start
         @start_time = Time.now
+        @prev_time = @start_time
         @stop = false
 
         if @output_path
@@ -36,22 +40,18 @@ module RespBench
           @file = File.open(@output_path, "a")
         end
 
-        # Take initial sample immediately
         take_sample
         @thread = Thread.new { sample_loop }
       end
 
-      # Stop sampling, join background thread
       def stop
         @stop = true
         @thread&.join(2)
-        # Take one final sample
         take_sample
         @file&.close
         @file = nil
       end
 
-      # For backward compat: return sample count
       def samples
         @sample_count
       end
@@ -66,8 +66,13 @@ module RespBench
       end
 
       def take_sample
-        elapsed = Time.now - @start_time
+        now = Time.now
+        elapsed = now - @start_time
         gc = GC.stat
+
+        current_requests = @request_counter.value
+        dt = now - @prev_time
+        rps = dt > 0 ? ((current_requests - @prev_requests) / dt).round(0) : 0
 
         sample = {
           t: elapsed.round(3),
@@ -81,8 +86,22 @@ module RespBench
           ruby_total_allocated_objects: gc[:total_allocated_objects],
           ruby_total_freed_objects: gc[:total_freed_objects],
           ruby_gc_count: gc[:count],
-          ruby_malloc_increase_bytes: gc[:malloc_increase_bytes]
+          ruby_malloc_increase_bytes: gc[:malloc_increase_bytes],
+          requests_total: current_requests,
+          rps: rps
         }
+
+        # Snapshot latency percentiles from the metrics collector if available
+        if @metrics_collector
+          @metrics_collector.all_metrics.each do |cmd_name, cmd_metrics|
+            next unless cmd_metrics.count > 0
+            sample[:"#{cmd_name.downcase}_p50_us"] = cmd_metrics.p50.to_i
+            sample[:"#{cmd_name.downcase}_p99_us"] = cmd_metrics.p99.to_i
+          end
+        end
+
+        @prev_requests = current_requests
+        @prev_time = now
 
         if @file
           @file.puts(JSON.generate(sample))
@@ -92,7 +111,6 @@ module RespBench
         @sample_count += 1
       end
 
-      # Get current RSS in KB, cross-platform
       def current_rss_kb
         if File.exist?("/proc/self/status")
           rss_from_proc
@@ -104,7 +122,7 @@ module RespBench
       def rss_from_proc
         File.readlines("/proc/self/status").each do |line|
           if line.start_with?("VmRSS:")
-            return line.split[1].to_i # already in kB
+            return line.split[1].to_i
           end
         end
         0

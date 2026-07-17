@@ -135,10 +135,12 @@ module RespBench
             phase_id: phase.id,
             output_path: memory_ndjson_path
           )
+          mem_sampler.metrics_collector = metrics
           mem_sampler.start
 
           status = execute_threaded_workload(phase, client_slots, commands, phase.keyspace,
-                                             key_generator_seed, rate_limiter, metrics)
+                                             key_generator_seed, rate_limiter, metrics,
+                                             request_counter: mem_sampler.request_counter)
 
           mem_sampler.stop
           @logger.info("Memory samples written: #{mem_sampler.sample_count} samples to #{memory_ndjson_path}")
@@ -402,7 +404,8 @@ module RespBench
       end
 
       def execute_threaded_workload(phase, client_slots, commands, keyspace,
-                                    key_generator_seed, rate_limiter, metrics)
+                                    key_generator_seed, rate_limiter, metrics,
+                                    request_counter: nil)
         completion = phase.completion
 
         # Calculate thread count (one thread per client, capped at MAX_THREADS)
@@ -486,6 +489,7 @@ module RespBench
                 end
 
                 local_count += 1
+                request_counter&.increment
               end
             else
               my_end_time = end_time
@@ -515,6 +519,7 @@ module RespBench
                 end
 
                 local_count += 1
+                request_counter&.increment
               end
             end
 
