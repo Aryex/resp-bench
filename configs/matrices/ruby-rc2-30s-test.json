@@ -1,0 +1,12 @@
+{
+    "description": "30s benchmark test for valkey-glide-ruby rc2 - throughput, latency, memory tracking",
+    "x_axis": "connections",
+    "workload_template": "configs/workloads/basic-standalone-single-client-30-secs.json",
+    "iterations": 1,
+    "dimensions": {
+        "connections": [1],
+        "driver_config": [
+            "configs/drivers/default/valkey-glide-ruby.json"
+        ]
+    }
+}
