@@ -86,30 +86,29 @@ public class StackExchangeRedisBenchmarkClient : IBenchmarkClient
         _connected = true;
     }
 
-    public Task<TimedResult<object?>> Set(byte[] key, byte[] value)
+    public async Task<TimedResult<object?>> Set(byte[] key, byte[] value)
     {
-        return AsyncHelper.TimedVoid(() =>
-        {
-            _db!.StringSet((RedisKey)key, (RedisValue)value);
-        });
+        long start = Stopwatch.GetTimestamp();
+        await _db!.StringSetAsync((RedisKey)key, (RedisValue)value).ConfigureAwait(false);
+        long latencyMicros = GetElapsedMicros(start);
+        return TimedResult<object?>.OfVoid(latencyMicros);
     }
 
-    public Task<TimedResult<byte[]?>> Get(byte[] key)
+    public async Task<TimedResult<byte[]?>> Get(byte[] key)
     {
-        return AsyncHelper.Timed<byte[]?>(() =>
-        {
-            RedisValue result = _db!.StringGet((RedisKey)key);
-            return result.IsNullOrEmpty ? null : (byte[])result!;
-        });
+        long start = Stopwatch.GetTimestamp();
+        RedisValue result = await _db!.StringGetAsync((RedisKey)key).ConfigureAwait(false);
+        long latencyMicros = GetElapsedMicros(start);
+        byte[]? value = result.IsNullOrEmpty ? null : (byte[])result!;
+        return TimedResult<byte[]?>.Of(value, latencyMicros);
     }
 
-    public Task<TimedResult<string?>> Ping()
+    public async Task<TimedResult<string?>> Ping()
     {
-        return AsyncHelper.Timed<string?>(() =>
-        {
-            _db!.Ping();
-            return "PONG";
-        });
+        long start = Stopwatch.GetTimestamp();
+        await _db!.PingAsync().ConfigureAwait(false);
+        long latencyMicros = GetElapsedMicros(start);
+        return TimedResult<string?>.Of("PONG", latencyMicros);
     }
 
     public Task<TimedResult<string?>> Ping(byte[] message)
@@ -117,22 +116,22 @@ public class StackExchangeRedisBenchmarkClient : IBenchmarkClient
         return Ping(); // StackExchange.Redis Ping doesn't support message
     }
 
-    public Task<TimedResult<long>> Del(params byte[][] keys)
+    public async Task<TimedResult<long>> Del(params byte[][] keys)
     {
-        return AsyncHelper.Timed(() =>
-        {
-            var redisKeys = keys.Select(k => (RedisKey)k).ToArray();
-            return _db!.KeyDelete(redisKeys);
-        });
+        long start = Stopwatch.GetTimestamp();
+        var redisKeys = keys.Select(k => (RedisKey)k).ToArray();
+        long count = await _db!.KeyDeleteAsync(redisKeys).ConfigureAwait(false);
+        long latencyMicros = GetElapsedMicros(start);
+        return TimedResult<long>.Of(count, latencyMicros);
     }
 
-    public Task<TimedResult<object?>> FlushDb()
+    public async Task<TimedResult<object?>> FlushDb()
     {
-        return AsyncHelper.TimedVoid(() =>
-        {
-            var server = _connection!.GetServer(_connection.GetEndPoints()[0]);
-            server.FlushDatabase();
-        });
+        long start = Stopwatch.GetTimestamp();
+        var server = _connection!.GetServer(_connection.GetEndPoints()[0]);
+        await server.FlushDatabaseAsync().ConfigureAwait(false);
+        long latencyMicros = GetElapsedMicros(start);
+        return TimedResult<object?>.OfVoid(latencyMicros);
     }
 
     public void Dispose()
@@ -141,5 +140,11 @@ public class StackExchangeRedisBenchmarkClient : IBenchmarkClient
         _connection?.Dispose();
         _connection = null;
         _db = null;
+    }
+
+    private static long GetElapsedMicros(long startTimestamp)
+    {
+        long elapsed = Stopwatch.GetTimestamp() - startTimestamp;
+        return elapsed * 1_000_000 / Stopwatch.Frequency;
     }
 }

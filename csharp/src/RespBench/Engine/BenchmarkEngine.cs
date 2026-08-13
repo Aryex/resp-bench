@@ -104,6 +104,22 @@ public class BenchmarkEngine
 
     private async Task<List<IBenchmarkClient>> CreateClients(PhaseConfig phase)
     {
+        // Shared-client mode: one multiplexed client reused across all worker Tasks
+        // (required for Valkey GLIDE and the canonical pattern for StackExchange.Redis's
+        // ConnectionMultiplexer). Concurrency comes from N Tasks issuing against the
+        // single client, not from N clients each spinning up their own runtime + socket.
+        if (_driverConfig.IsSharedClient)
+        {
+            Console.WriteLine($"Shared-client mode: 1 {_driverConfig.DriverId} client shared across {phase.Connections} worker tasks");
+            var client = BenchmarkClientFactory.CreateAndConnect(_host, _port, _driverConfig);
+            var slots = new List<IBenchmarkClient>(phase.Connections);
+            for (int i = 0; i < phase.Connections; i++)
+            {
+                slots.Add(client);
+            }
+            return slots;
+        }
+
         Console.WriteLine($"Creating {phase.Connections} connections...");
         var clients = new List<IBenchmarkClient>();
         var cpsLimiter = phase.HasCpsLimit ? RateLimiter.Create(phase.CpsLimit) : null;
@@ -340,8 +356,11 @@ public class BenchmarkEngine
 
     private void CloseClients(List<IBenchmarkClient> clients)
     {
-        Console.WriteLine($"Closing {clients.Count} connections...");
-        foreach (var client in clients)
+        // Dedupe by reference identity so a shared client is disposed exactly once.
+        var unique = new HashSet<IBenchmarkClient>(ReferenceEqualityComparer.Instance);
+        foreach (var c in clients) unique.Add(c);
+        Console.WriteLine($"Closing {unique.Count} client(s)...");
+        foreach (var client in unique)
         {
             try { client.Dispose(); }
             catch (Exception e) { Console.WriteLine($"Error closing client: {e.Message}"); }

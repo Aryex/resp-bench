@@ -3,7 +3,7 @@
  *
  * Valkey GLIDE C# client implementation.
  * Based on https://github.com/valkey-io/valkey-glide-csharp
- * NuGet: Valkey.Glide v0.9.0
+ * NuGet: Valkey.Glide v1.1.0
  *
  * Valkey.Glide uses a StackExchange.Redis-compatible API
  * (ConnectionMultiplexer, IDatabase, IServer), so the implementation
