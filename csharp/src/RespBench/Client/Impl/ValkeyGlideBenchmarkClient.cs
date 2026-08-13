@@ -3,13 +3,14 @@
  *
  * Valkey GLIDE C# client implementation.
  * Based on https://github.com/valkey-io/valkey-glide-csharp
- * NuGet: Valkey.Glide v0.9.0
+ * NuGet: Valkey.Glide (version pinned in RespBench.csproj)
  *
  * Valkey.Glide uses a StackExchange.Redis-compatible API
  * (ConnectionMultiplexer, IDatabase, IServer), so the implementation
  * mirrors StackExchangeRedisBenchmarkClient closely.
  */
 using System.Diagnostics;
+using System.Reflection;
 using RespBench.Config;
 using Valkey.Glide;
 
@@ -36,12 +37,11 @@ public class ValkeyGlideBenchmarkClient : IBenchmarkClient
         {
             try
             {
-                return typeof(ConnectionMultiplexer).Assembly.GetName().Version?.ToString() ?? "0.9.0";
+                var asm = typeof(ConnectionMultiplexer).Assembly;
+                return asm.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+                    ?? asm.GetName().Version?.ToString() ?? "unknown";
             }
-            catch
-            {
-                return "0.9.0";
-            }
+            catch { return "unknown"; }
         }
     }
 
