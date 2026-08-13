@@ -46,6 +46,15 @@ public class DriverConfig
     /// <summary>Check if authentication is configured.</summary>
     public bool HasAuth => Auth?.Password != null && !string.IsNullOrEmpty(Auth.Password);
 
+    /// <summary>
+    /// True when the driver should run as one shared multiplexed client across all
+    /// worker Tasks (mirrors Ruby's specific_driver_config.shared_client flag).
+    /// Concurrency comes from N Tasks issuing against the single client, not from N
+    /// separate clients. Required to represent Valkey GLIDE fairly; also the correct
+    /// pattern for StackExchange.Redis's ConnectionMultiplexer.
+    /// </summary>
+    public bool IsSharedClient => GetSpecificBool("shared_client", false);
+
     /// <summary>Check if connection pooling is enabled in specific_driver_config.</summary>
     public bool IsUsePooling => GetSpecificBool("use_pooling", false);
 
